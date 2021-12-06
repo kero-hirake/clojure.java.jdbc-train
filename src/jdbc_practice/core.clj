@@ -128,3 +128,62 @@
 (into [] (map add-tax) (jdbc/reducible-query db-spec ["SELECT * FROM fruit"]))
 
 
+;;Inserting data
+;複雑なinsertが必要な場合は、execute！を使用できます。
+;また、DBがサポートするなら、生成されたキーを取得するためのオプション：return-keysを使用可能
+
+;Inserting a row
+(jdbc/insert! db-spec :fruit {:name "Pear" :appearance "green" :cost 99})
+
+;Inserting multiple rows
+;複数の行を挿入するには、マップのシーケンスとして、;またはベクトルのシーケンスとして2つの方法があります。
+;前者の場合、複数の挿入が実行され、生成されたキーのマップが挿入ごとに（シーケンスとして）返されます。
+;後者の場合、単一のバッチ挿入が実行され、一連の行挿入カウントが返されます（通常は一連の挿入）。
+;後者は、多数の行を挿入する場合に大幅に高速になる可能性があります。
+(jdbc/insert-multi! db-spec :fruit
+                    [{:name "Pomegranate" :appearance "fresh" :cost 585}
+                     {:name "Kiwifruit" :grade 93}])
+(jdbc/insert-multi! db-spec :fruit
+                    [{:name "orange" :appearance "round" :cost 90 :grade 4}
+                     {:name "cherry" :appearance "small" :cost 50 :grade 0}])
+; 挿入する列を指定し、その後に各行を列値のベクトルとして指定
+(jdbc/insert-multi! db-spec :fruit
+                    [:name :appearance :cost :grade]
+                    [["mellon" "mesh" 1000 5]
+                     ["banana" "yellow" 30 1]])
+;完全な行を挿入する場合は、列名ベクトルを省略可能だが、指定した方が安全
+(jdbc/insert-multi! db-spec :fruit
+                    nil ; column names not supplied
+                    [[1 "Apple" "red" 59 87]
+                     [2 "Banana" "yellow" 29 92.2]
+                     [3 "Peach" "fuzzy" 139 90.0]
+                     [4 "Orange" "juicy" 89 88.6]])
+
+;Updating rows
+(jdbc/update! db-spec :fruit
+              {:cost 49}
+              ["grade < ?" 75])
+(jdbc/execute! db-spec
+               ["UPDATE fruit SET cost = (2 * grade) WHERE grade > ?" 50.0])
+
+;Deleting rows
+(jdbc/delete! db-spec :fruit ["grade < ?" 25.0])
+(jdbc/execute! db-spec ["DELETE FROM fruite WHERE grade < ?" 25.0])
+
+;Using transactions
+(jdbc/with-db-transaction [t-con db-spec]
+                          (jdbc/update! t-con :fruit
+                                        {:cost 49}
+                                        ["grade < ?" 50])
+                          (jdbc/execute! t-con
+                                         ["UPDATE fruit SET cost = (2 * grade) where grade > ?"50.0 ]))
+;:isolationオプションで、トランザクション分離レベルを指定可能
+;指定できる値は、:none、:read-committed、:read-uncommitted、:repeatable-read、:serializable
+(jdbc/with-db-transaction [t-con db-spec {:isolation :serializable}]
+  ...)
+(jdbc/db-set-rollback-only! t-con)   ; コミットではなくロールバック
+(jdbc/db-unset-rollback-only! t-con) ;成功した場合、このトランザクションはコミット
+(jdbc/db-is-rollback-only t-con)     ; トランザクションがロールバックに設定されている場合はtrueを返す
+
+
+
