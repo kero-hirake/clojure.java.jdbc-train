@@ -7,10 +7,10 @@
 ;;
 ; 接続用マップ
 (def db-spec {:dbtype "postgresql"
-            :dbname "jdbc_practice"
-            :host "localhost"
-            :user "postgres"
-            :password "password"})
+              :dbname "jdbc_practice"
+              :host "localhost"
+              :user "postgres"
+              :password "password"})
 ; 接続文字列
 (def db-uri
   {:connection-uri (str "postgresql://postgres:password@localhost:5432/jdbc_practice")})
@@ -50,7 +50,7 @@
 ;; Dropping our tables
 (def drop-fruit-table-ddl (jdbc/drop-table-ddl :fruit))
 ;作成とは逆の順序でテーブルとインデックスを破棄
-(jdbc/db-do-commands db-spec 
+(jdbc/db-do-commands db-spec
                      ["DROP INDEX name_ix;"
                       drop-fruit-table-ddl])
 
@@ -159,24 +159,24 @@
                      [3 "Peach" "fuzzy" 139 90.0]
                      [4 "Orange" "juicy" 89 88.6]])
 
-;Updating rows
+;; Updating rows
 (jdbc/update! db-spec :fruit
               {:cost 49}
               ["grade < ?" 75])
 (jdbc/execute! db-spec
                ["UPDATE fruit SET cost = (2 * grade) WHERE grade > ?" 50.0])
 
-;Deleting rows
+;; Deleting rows
 (jdbc/delete! db-spec :fruit ["grade < ?" 25.0])
 (jdbc/execute! db-spec ["DELETE FROM fruite WHERE grade < ?" 25.0])
 
-;Using transactions
+;; Using transactions
 (jdbc/with-db-transaction [t-con db-spec]
-                          (jdbc/update! t-con :fruit
-                                        {:cost 49}
-                                        ["grade < ?" 50])
-                          (jdbc/execute! t-con
-                                         ["UPDATE fruit SET cost = (2 * grade) where grade > ?"50.0 ]))
+  (jdbc/update! t-con :fruit
+                {:cost 49}
+                ["grade < ?" 50])
+  (jdbc/execute! t-con
+                 ["UPDATE fruit SET cost = (2 * grade) where grade > ?" 50.0]))
 ;:isolationオプションで、トランザクション分離レベルを指定可能
 ;指定できる値は、:none、:read-committed、:read-uncommitted、:repeatable-read、:serializable
 (jdbc/with-db-transaction [t-con db-spec {:isolation :serializable}]
@@ -185,5 +185,46 @@
 (jdbc/db-unset-rollback-only! t-con) ;成功した場合、このトランザクションはコミット
 (jdbc/db-is-rollback-only t-con)     ; トランザクションがロールバックに設定されている場合はtrueを返す
 
+;; Updating or Inserting rows conditionally
+;java.jdbcには、「既存の行があれば更新、無ければ新しい行を挿入」という組み込み関数はありません。
+(defn update-or-insert! [db table row where-clause]
+  (jdbc/with-db-transaction [t-con db]
+    (let [result (jdbc/update! t-con table row where-clause)]
+      (if (zero? (first result))
+        (jdbc/insert! t-con table row)
+        result))))
 
+(update-or-insert! db-spec :fruit
+                   {:name "Cactus" :appearance "Spiky" :cost 2000}
+                   ["name = ?" "Cactus"])
+
+(update-or-insert! db-spec :fruit
+                   {:name "Cactus" :appearance "Spiky" :cost 2500}
+                   ["name = ?" "Cactus"])
+
+(jdbc/query db-spec ["select * from fruit where name=?" "Pear"])
+(jdbc/delete! db-spec :fruit ["name=?" "Pear"] )
+
+;; Exception Handling and Transaction Rollback
+(jdbc/with-db-transaction [t-con db-spec]
+  (jdbc/insert-multi! t-con :fruit
+                       [:name :appearance]
+                       [["Grape" "yummy"]
+                        ["Pear" "bruised"]])
+  ;insertは完了しても、例外でロールバックする
+  (throw (Exception. "sql/test exception")))
+
+(jdbc/with-db-transaction [t-con db-spec]
+  (prn "is-rollback-only" (jdbc/db-is-rollback-only t-con))
+  (jdbc/db-set-rollback-only! t-con)
+  (jdbc/insert-multi! t-con :fruit
+                       [:name :appearance]
+                       [["Orange" "yummy"]
+                        ["Pear" "bruised"]])
+  (prn "is-rollback-only" (jdbc/db-is-rollback-only t-con))
+  (jdbc/query t-con ["SELECT * FROM fruit"]
+              {:row-fn println}))
+(prn)
+(jdbc/query db-spec ["SELECT * FROM fruit"]
+            {:row-fn println})
 
