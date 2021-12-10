@@ -203,7 +203,7 @@
                    ["name = ?" "Cactus"])
 
 (jdbc/query db-spec ["select * from fruit where name=?" "Pear"])
-(jdbc/delete! db-spec :fruit ["name=?" "Pear"] )
+(jdbc/delete! db-spec :fruit ["name=?" "Apple"] )
 
 ;; Exception Handling and Transaction Rollback
 (jdbc/with-db-transaction [t-con db-spec]
@@ -228,3 +228,36 @@
 (jdbc/query db-spec ["SELECT * FROM fruit"]
             {:row-fn println})
 
+
+;; Clojure identifiers and SQL entities
+;java.jdbcは、結果セット内のSQLエンティティ名をClojureのキーワードに小文字に変換し、
+;テーブル名と列名（マップ内）を指定する文字列とキーワードをデフォルトでそのままSQLエンティティに変換します。
+;オプションマップを指定することで、この動作をオーバーライドできます。
+; :identifiersは、ResultSet列名をキーワード（または文字列）に変換するためのものです。
+;  デフォルトはclojure.string / lower-caseです。
+; :keywordize？識別子をキーワード（デフォルト）に変換するかどうかを制御します。
+; :qualifierは、オプションで、キーワードを修飾する名前空間を指定します（:keywordize？がfalseでない場合）。
+; :entitiesは、Clojureのキーワード/文字列をSQLエンティティ名に変換するためのものです。
+;  デフォルトはIdentityです（キーワードまたは文字列でnameを呼び出した後）。
+
+;クエリ結果でjava.jdbcがSQLエンティティ名を小文字に変換しないようにする場合は、：identifiersidentityを指定できます。
+(jdbc/query db-spec ["SELECT * FROM fruit"]
+            {:identifiers identity})
+;列名にアンダースコアが含まれているデータベースを使用している場合は、
+;Clojureキーワードでそれらをダッシュ​​に変換する関数を指定することをお勧めします。
+(jdbc/query db-spec ["SELECT * FROM fruit"]
+            {:identifiers #(.replace  % \_ \-)})
+
+; いくつかのデータベースの場合、エンティティを何らかの方法でクォートする必要があります。
+; entitiesオプションとquoted関数を使う
+(jdbc/insert! db-spec :fruit
+              {:name "Apple" :appearance "Round" :cost 99}
+              {:entities (jdbc/quoted \`)})
+;INSERT INTO `fruit` ( `name`, `appearance`, `cost` )
+;    VALUES ( ?, ?, ? )
+
+(jdbc/insert! db-spec :fruit
+              {:name "Apple" :appearance "Round" :cost 99}
+              {:entities (jdbc/quoted [\[ \]])})
+;INSERT INTO [fruit] ([name], [appearance], [cost])
+;VALUES (?, ?, ?)
