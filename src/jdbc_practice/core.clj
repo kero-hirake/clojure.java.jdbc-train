@@ -1,6 +1,6 @@
 (ns jdbc-practice.core
   (:require [clojure.java.jdbc :as jdbc])
-  (:gen-class))
+  (:import (com.mchange.v2.c3p0 ComboPooledDataSource)))
 
 ;;
 ;; overview
@@ -261,3 +261,36 @@
               {:entities (jdbc/quoted [\[ \]])})
 ;INSERT INTO [fruit] ([name], [appearance], [cost])
 ;VALUES (?, ?, ?)
+
+
+;; How to reuse database connecitons
+; using with-db-connection
+(jdbc/with-db-connection [db-con db-spec]
+  (let [rows (jdbc/query db-con ["SELECT * FROM fruit WHERE cost = ?" 186])]
+    (jdbc/insert! db-con :fruit (dissoc (first rows) :name))))
+;↑query と insert! がそれぞれ独自のトランザクションで実行される
+
+; using with-db-transaction
+(jdbc/with-db-transaction [t-con db-spec]
+  (let [rows (jdbc/query t-con ["SELECT * FROM fruit WHERE cost = ?" 186])]
+    (jdbc/insert! t-con :fruit (dissoc (first rows) :name))))
+;↑ ネストした場合は、外部のトランザクションがそのまま使用される
+
+;; Using Connection Pooling
+; java.jdbcは接続プールを直接提供しない
+(defn pool [spec]
+  (let [cpds (doto (ComboPooledDataSource.)
+               (.setDriverClass (:classname spec))
+               (.setJdbcUrl (str "jdbc:" (:subprotocol spec) ":" (:subname spec)))
+               (.setUser (:user spec))
+               (.setPassword (:password spec))
+               (.setMaxIdleTimeExcessConnections (* 30 60))
+               (.setMaxIdleTime (* 3 60 60)))]
+    {:datasource cpds}))
+
+(def pooled-db (delay (pool db-spec)))
+(defn db-connection [] @pooled-db)
+
+
+
+
