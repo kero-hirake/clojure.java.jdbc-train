@@ -2,9 +2,9 @@
   (:require [clojure.java.jdbc :as jdbc])
   (:import (com.mchange.v2.c3p0 ComboPooledDataSource)))
 
-;;
+;----------------------------------------
 ;; overview
-;;
+;----------------------------------------
 ; 接続用マップ
 (def db-spec {:dbtype "postgresql"
               :dbname "jdbc_practice"
@@ -54,9 +54,9 @@
                      ["DROP INDEX name_ix;"
                       drop-fruit-table-ddl])
 
-;;
+;----------------------------------------
 ;; Manipulating data with SQL
-;;
+;----------------------------------------
 ; Reading rows
 ; 通常は、列名と値のマップが返ってくる
 (jdbc/query db-spec ["SELECT * FROM fruit"])
@@ -203,14 +203,14 @@
                    ["name = ?" "Cactus"])
 
 (jdbc/query db-spec ["select * from fruit where name=?" "Pear"])
-(jdbc/delete! db-spec :fruit ["name=?" "Apple"] )
+(jdbc/delete! db-spec :fruit ["name=?" "Apple"])
 
 ;; Exception Handling and Transaction Rollback
 (jdbc/with-db-transaction [t-con db-spec]
   (jdbc/insert-multi! t-con :fruit
-                       [:name :appearance]
-                       [["Grape" "yummy"]
-                        ["Pear" "bruised"]])
+                      [:name :appearance]
+                      [["Grape" "yummy"]
+                       ["Pear" "bruised"]])
   ;insertは完了しても、例外でロールバックする
   (throw (Exception. "sql/test exception")))
 
@@ -218,9 +218,9 @@
   (prn "is-rollback-only" (jdbc/db-is-rollback-only t-con))
   (jdbc/db-set-rollback-only! t-con)
   (jdbc/insert-multi! t-con :fruit
-                       [:name :appearance]
-                       [["Orange" "yummy"]
-                        ["Pear" "bruised"]])
+                      [:name :appearance]
+                      [["Orange" "yummy"]
+                       ["Pear" "bruised"]])
   (prn "is-rollback-only" (jdbc/db-is-rollback-only t-con))
   (jdbc/query t-con ["SELECT * FROM fruit"]
               {:row-fn println}))
@@ -262,8 +262,10 @@
 ;INSERT INTO [fruit] ([name], [appearance], [cost])
 ;VALUES (?, ?, ?)
 
-
+;----------------------------------------
 ;; How to reuse database connecitons
+;----------------------------------------
+
 ; using with-db-connection
 (jdbc/with-db-connection [db-con db-spec]
   (let [rows (jdbc/query db-con ["SELECT * FROM fruit WHERE cost = ?" 186])]
@@ -290,6 +292,49 @@
 
 (def pooled-db (delay (pool db-spec)))
 (defn db-connection [] @pooled-db)
+
+;----------------------------------------
+;; Using DDL and Metadata
+;----------------------------------------
+;コマンドは、トランザクションにラップされた単一のバッチステートメントとして実行されます。
+;(jdbc/db-do-commands db-spec [sql]-command1 ....)
+;トランザクションを回避したい場合↓
+;(jdbc/db-do-commands db-spec false [sql]-command1 ....)
+
+;; Creating tables
+;[IF NOT EXISTS]を追加したいときは、conditional? をtureに
+(jdbc/create-table-ddl :fruit
+                       [[:lame "varchar(32)" :primaty :key]
+                        [:appearance "varchar(32)"]
+                        [:cost :int]
+                        [:grade :real]
+                        {:table-spec "ENGINE=InnoDB"
+                         :entries clojure.string/upper-case}])
+;=>CREATE TABLE FRUIT
+;  (NAME varchar (32) primary key
+;   APPEARANCE varchar (32)
+;   COST int
+;   GRADE real) ENGINE=InnoDB
+
+;;Dropping Tabels
+;↑と同じように condition? あり
+(jdbc/drop-table-ddl :fruit)
+(jdbc/drop-table-ddl :fruit {:entities clojure.string/upper-case}) ;drop table FRUIT
+
+;; Accessing metadata
+(clojure.pprint/pprint
+ (jdbc/with-db-metadata [md db-spec]
+   (jdbc/metadata-result (.getTables md nil nil nil (into-array ["TABLE" "VIEW"])))))
+#_({:remarks nil
+    :table_type "TABLE"
+    :ref_generation ""
+    :table_schem "public"
+    :type_cat ""
+    :table_name "fruit"
+    :type_schem ""
+    :self_referencing_col_name ""
+    :type_name ""
+    :table_cat nil})
 
 
 
